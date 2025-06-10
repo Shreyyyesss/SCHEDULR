@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Scheduler</title>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#0e0e0e;--fg:#f5f5f5;--panel:rgba(255,255,255,0.06);--border:rgba(255,255,255,0.15);--glow:0 0 12px rgba(255,255,255,0.15);}
+    body{background:var(--bg);color:var(--fg);font-family:"Share Tech Mono",monospace;display:flex;flex-direction:column;align-items:center;padding:40px 20px;min-height:100vh;}
+    h1{font-family:"Rajdhani",sans-serif;font-size:2.6rem;text-transform:uppercase;margin-bottom:20px;}
+    .card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:30px;width:100%;max-width:640px;box-shadow:var(--glow);}
+    label{display:block;margin-top:10px;font-size:.9rem;text-transform:uppercase;color:#ccc;}
+    input{width:100%;background:transparent;border:1px solid var(--border);color:var(--fg);padding:10px;border-radius:6px;margin-top:4px;}
+    button{background:transparent;border:1px solid var(--fg);color:var(--fg);padding:10px 16px;margin-top:12px;border-radius:6px;cursor:pointer;font-family:"Rajdhani",sans-serif;transition:.3s;}
+    button:hover{background:var(--fg);color:var(--bg);}
+    table{width:100%;border-collapse:collapse;margin-top:20px;}
+    th,td{border:1px solid var(--border);padding:8px;text-align:center;}
+    th{background:rgba(255,255,255,0.1);text-transform:uppercase;}
+    .response{margin-top:15px;min-height:30px;text-align:center;}
+    .result-card{margin-top:20px;padding:16px;border:1px solid var(--fg);border-radius:8px;text-align:center;box-shadow:0 0 15px rgba(255,255,255,0.2);font-size:1rem;animation:fade 0.4s ease-in;}
+    @keyframes fade{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+  </style>
+</head>
+<body>
+  <h1>Smart Scheduler</h1>
+  <div class="card">
+    <form id="scheduleForm">
+      <label>Name</label>
+      <input type="text" id="name" required>
+      <label>Start Time (e.g. 9.5)</label>
+      <input type="number" step="0.1" id="start" required>
+      <label>End Time (e.g. 17.0)</label>
+      <input type="number" step="0.1" id="end" required>
+      <button type="submit">💾 Save Availability</button>
+    </form>
+
+    <label>Window Start (e.g. 9)</label>
+    <input type="number" step="0.1" id="windowStart" value="9.0">
+    <label>Window End (e.g. 18)</label>
+    <input type="number" step="0.1" id="windowEnd" value="18.0">
+
+    <div>
+      <button id="refreshBtn" type="button">🔄 View All</button>
+      <button id="findSlotBtn" type="button">🕒 Find Best Slot</button>
+      <button id="clearBtn" type="button">🗑 Clear Data</button>
+    </div>
+
+    <div id="response" class="response"></div>
+    <div id="tableContainer"></div>
+    <div id="resultCard" class="result-card" style="display:none;"></div>
+  </div>
+
+  <script>
+    const resBox = document.getElementById("response");
+    const tableContainer = document.getElementById("tableContainer");
+    const resultCard = document.getElementById("resultCard");
+
+    // ✅ FIXED: properly scoped inputs
+    document.getElementById("scheduleForm").addEventListener("submit", async (e)=>{
+      e.preventDefault();
+
+      const nameInput = document.getElementById("name");
+      const startInput = document.getElementById("start");
+      const endInput = document.getElementById("end");
+
+      const data = {
+        name: nameInput.value.trim(),
+        start: parseFloat(startInput.value),
+        end: parseFloat(endInput.value)
+      };
+
+      console.log("➡️ Sending:", data); // debug log
+      resBox.textContent = "⏳ Saving...";
+
+      const res = await fetch("/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+      });
+
+      const out = await res.json();
+      resBox.textContent = out.message;
+
+      nameInput.value = "";
+      startInput.value = "";
+      endInput.value = "";
+    });
+
+    document.getElementById("refreshBtn").addEventListener("click",async()=>{
+      resBox.textContent="⏳ Loading...";
+      const res=await fetch("/availabilities");
+      const data=await res.json();
+      if(!data.length){
+        tableContainer.innerHTML="<p>No availabilities yet.</p>";
+        resBox.textContent="";
+        return;
+      }
+      tableContainer.innerHTML='<table><tr><th>Name</th><th>Start</th><th>End</th></tr>'
+        +data.map(r=>`<tr><td>${r.name}</td><td>${r.start}</td><td>${r.end}</td></tr>`).join("")
+        +"</table>";
+      resBox.textContent="✅ Loaded!";
+    });
+
+    document.getElementById("findSlotBtn").addEventListener("click",async()=>{
+      resBox.textContent="⏳ Finding best slot...";
+      const startW=parseFloat(document.getElementById("windowStart").value);
+      const endW=parseFloat(document.getElementById("windowEnd").value);
+
+      const res=await fetch("/find-best-slot",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({startWindow:startW,endWindow:endW})
+      });
+
+      const data=await res.json();
+      if(!data.result||!data.result.BestStart){
+        resBox.textContent="⚠️ No matching slots!";
+        resultCard.style.display="none";
+        return;
+      }
+
+      const {BestStart,Count,People}=data.result;
+      resBox.textContent="✅ Best slot found!";
+      resultCard.style.display="block";
+      resultCard.textContent=`🕒 ${BestStart} hrs (${Count} people): ${People}`;
+    });
+
+    document.getElementById("clearBtn").addEventListener("click",async()=>{
+      await fetch("/clear");
+      resBox.textContent="🗑 All data cleared.";
+      tableContainer.innerHTML="";
+      resultCard.style.display="none";
+    });
+  </script>
+</body>
+</html>
